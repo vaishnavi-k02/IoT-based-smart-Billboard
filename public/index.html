@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Smart Billboard</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: black;
+            color: white;
+        }
+        video {
+            width: 80%;
+            max-width: 1080px;
+            height: auto;
+            display: none; /* Initially hidden */
+        }
+    </style>
+</head>
+<body>
+    <video id="adPlayer" width="640" height="360" autoplay playsinline></video>
+    <div id="sensorData" style="margin-top: 10px; font-size: 18px;"></div>
+
+    <script>
+        let adQueue = [];
+        let currentAdIndex = 0;
+        let motionDetected = false;
+        let temp, humidity, noise;
+
+        async function fetchAds(category, mute) {
+            try {
+                console.log(`📡 Fetching ads for category: ${category}...`);
+
+                const response = await fetch(`/getAd?category=${category}`);
+                const adUrl = await response.text();
+
+                if (!adUrl.includes("cloudinary.com")) {
+                    console.error("❌ Invalid ad URL:", adUrl);
+                    return;
+                }
+
+                console.log(`🎬 Now Playing: ${adUrl} (Muted: ${mute})`);
+                
+                // Ensure no ad repeats immediately
+                if (adQueue.length === 0 || adQueue[adQueue.length - 1].url !== adUrl) {
+                    adQueue.push({ url: adUrl, mute });
+                }
+
+                if (adQueue.length === 1) {
+                    playNextAd();
+                }
+            } catch (error) {
+                console.error("❌ Error fetching ad:", error);
+            }
+        }
+
+        function playNextAd() {
+            if (adQueue.length === 0 || !motionDetected) {
+                console.log("⏹ No motion detected. Stopping ads.");
+                stopVideo();
+                return;
+            }
+
+            const videoElement = document.getElementById("adPlayer");
+            const { url, mute } = adQueue[currentAdIndex];
+
+            videoElement.src = url;
+            videoElement.muted = mute;
+            videoElement.style.display = "block";
+
+            videoElement.play().then(() => {
+                console.log("✅ Playback started successfully.");
+            }).catch(error => {
+                console.error("❌ Playback error:", error);
+                setTimeout(() => videoElement.play(), 1000);
+            });
+
+            videoElement.onended = () => {
+                console.log("🔄 Ad ended, updating dummy data...");
+                currentAdIndex = (currentAdIndex + 1) % adQueue.length;
+                
+                // ✅ Change dummy data only AFTER ad finishes
+                setTimeout(changeDummyData, 1000);
+                
+                playNextAd();
+            };
+        }
+
+        function stopVideo() {
+            const videoElement = document.getElementById("adPlayer");
+            videoElement.pause();
+            videoElement.currentTime = 0;
+            videoElement.style.display = "none";
+            adQueue = [];
+            currentAdIndex = 0;
+        }
+
+        function determineAdCategory(temp, noise) {
+            if (temp > 30) return "hot-ads";
+            if (temp < 20) return "cold-ads";
+            return "random-ads";
+        }
+
+        function updateSensorData(newTemp, newHumidity, newNoise, motion) {
+            temp = newTemp;
+            humidity = newHumidity;
+            noise = newNoise;
+            motionDetected = motion;
+
+            console.log(`📊 Sensor Data → Temp: ${temp}°C, Humidity: ${humidity}%, Noise: ${noise} dB, Motion: ${motion}`);
+
+            document.getElementById("sensorData").innerHTML = `
+                Temperature: ${temp}°C | Humidity: ${humidity}% | Noise: ${noise} dB | Motion: ${motion ? "Detected" : "Not Detected"}
+            `;
+
+            if (motion) {
+                console.log("✅ Motion detected! Selecting ad...");
+                const category = determineAdCategory(temp, noise);
+                const mute = noise > 60;
+                console.log(mute ? "🔇 High noise detected → Muting ad" : "🔊 Normal noise → Playing with sound");
+                fetchAds(category, mute);
+            } else {
+                console.log("⏹ No motion detected. Stopping ads.");
+                stopVideo();
+                setTimeout(changeDummyData, 3000); // 🔥 Shorter wait time for dummy data refresh when no motion
+            }
+        }
+
+        function changeDummyData() {
+            temp = Math.floor(Math.random() * 40);
+            humidity = Math.floor(Math.random() * 100);
+            noise = Math.floor(Math.random() * 100);
+            motionDetected = Math.random() > 0.3 ? 1 : 0; // 70% chance of motion detected
+
+            updateSensorData(temp, humidity, noise, motionDetected);
+
+            // ✅ Keep changing data even if no motion
+            if (!motionDetected) {
+                setTimeout(changeDummyData, 3000); // 🔥 Keep checking every 3 sec when no motion
+            }
+        }
+
+        // ✅ Change data ONLY AFTER an ad finishes
+        document.getElementById("adPlayer").addEventListener("ended", () => {
+            changeDummyData();
+        });
+
+        // Initial sensor data update
+        changeDummyData();
+    </script>
+</body>
+</html>
